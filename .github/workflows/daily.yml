@@ -1,0 +1,32 @@
+name: Daily Market Dispatch
+
+on:
+  schedule:
+    # 21:00 UTC, Mon-Fri = 06:00 JST next morning (Tue-Sat)
+    # ⚠ Summer (EDT, Mar-Nov): US close at 20:00 UTC → 1h buffer ✓
+    # ⚠ Winter (EST, Nov-Mar): US close at 21:00 UTC → consider '30 21 * * 1-5'
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:        # manual trigger
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send dispatch
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python dispatch.py
