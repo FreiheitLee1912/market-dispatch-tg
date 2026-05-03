@@ -15,6 +15,7 @@ import html
 import os
 import sys
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import feedparser
 import requests
@@ -34,6 +35,8 @@ TICKERS = {
     "usdjpy": "JPY=X",
     "tech":   "XLK",
     "energy": "XLE",
+    "gold":   "GC=F",   # Gold futures
+    "oil":    "CL=F",   # WTI crude oil futures
 }
 
 NEWS_FEEDS = [
@@ -59,11 +62,23 @@ def fetch_market_data():
     prev_row, curr_row = df.iloc[-2], df.iloc[-1]
     out = {}
     for name, tkr in TICKERS.items():
+        # Skip tickers with missing data — keep the rest going
+        if tkr not in curr_row or curr_row[tkr] != curr_row[tkr]:  # NaN check
+            print(f"  ⚠ no data for {name} ({tkr}), skipping")
+            continue
         prev = float(prev_row[tkr])
         curr = float(curr_row[tkr])
         out[name] = {"level": curr, "change": (curr - prev) / prev * 100}
 
-    return out, df.index[-1].strftime("%Y-%m-%d"), df.index[-1].strftime("%a")
+    latest_close_date = df.index[-1].date()
+    return out, latest_close_date
+
+
+def is_us_trading_day(latest_close_date):
+    """Returns True if the latest close date matches today's US Eastern date.
+    If they differ, today was a holiday (or we ran before market data synced)."""
+    today_et = datetime.now(ZoneInfo("America/New_York")).date()
+    return latest_close_date == today_et
 
 
 def vix_regime(v):
@@ -129,6 +144,10 @@ def write_closing_note(data, date_str):
 
     from anthropic import Anthropic
     client = Anthropic(api_key=ANTHROPIC_KEY)
+
+    gold_line = f"• Gold:       {data['gold']['level']:.2f}    ({data['gold']['change']:+.2f}%)" if "gold" in data else ""
+    oil_line  = f"• Oil (WTI):  {data['oil']['level']:.2f}    ({data['oil']['change']:+.2f}%)"  if "oil"  in data else ""
+
     prompt = f"""You are the editor of a daily financial newspaper called "The Closing Bell".
 
 Today's US market close ({date_str}):
@@ -139,10 +158,12 @@ Today's US market close ({date_str}):
 • VIX:        {data['vix']['level']:.2f}    ({data['vix']['change']:+.2f}%)
 • Tech XLK:   {data['tech']['change']:+.2f}%
 • Energy XLE: {data['energy']['change']:+.2f}%
+{gold_line}
+{oil_line}
 
-Write the closing note in exactly 2 sentences, max 45 words total.
+Write the closing note in exactly 2 sentences, max 50 words total.
 Editorial newspaper voice — observational and dry, not breathless.
-Mention the day's leader and one notable cross-market signal.
+Mention the day's leader and one notable cross-asset signal (FX, vol, commodities, or sector divergence).
 No emojis. No headers. No quotation marks. Just the prose."""
 
     msg = client.messages.create(
@@ -195,6 +216,17 @@ def build_message(data, date_str, day_str, headlines, note):
     vix = data["vix"]
     lines.append(f"🔵 <b>VIX</b> · <code>{vix['level']:.2f}</code> · <b>{fmt_pct(vix['change'])}</b> · <i>{vix_regime(vix['level'])}</i>")
     lines.append("")
+
+    # Commodities
+    if "gold" in data or "oil" in data:
+        lines.append("🪙 <b>Commodities</b>")
+        if "gold" in data:
+            g = data["gold"]
+            lines.append(f"{emoji_for(g['change'])} <b>Gold</b> · <code>{g['level']:,.2f}</code> · <b>{fmt_pct(g['change'])}</b>")
+        if "oil" in data:
+            o = data["oil"]
+            lines.append(f"{emoji_for(o['change'])} <b>Crude Oil (WTI)</b> · <code>{o['level']:.2f}</code> · <b>{fmt_pct(o['change'])}</b>")
+        lines.append("")
 
     # Sectors
     lines.append("🔥 <b>Sectors</b>")
@@ -255,8 +287,17 @@ def main():
     print("│  Market Dispatch · Telegram Text Edition       │")
     print("└" + "─" * 48 + "┘")
 
-    data, date_str, day_str = fetch_market_data()
+    data, latest_close_date = fetch_market_data()
+    date_str = latest_close_date.strftime("%Y-%m-%d")
+    day_str  = latest_close_date.strftime("%a")
     print(f"  Latest close: {date_str} ({day_str})")
+
+    # Skip if today wasn't a US trading day (holiday detection)
+    if not is_us_trading_day(latest_close_date):
+        today_et = datetime.now(ZoneInfo("America/New_York")).date()
+        print(f"  ⚠ Today ({today_et}) is not a US trading day.")
+        print(f"  ⚠ Latest available close is {date_str} — skipping dispatch.")
+        return
 
     headlines = fetch_headlines(max_items=4)
     print(f"  Got {len(headlines)} headlines")
