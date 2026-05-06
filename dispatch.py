@@ -50,7 +50,15 @@ def fetch_market_data():
         period="7d",
         auto_adjust=False,
         progress=False,
-    )["Close"].dropna(how="all")
+    )["Close"]
+
+    # Use S&P 500 as the anchor for "did US markets actually trade this day?"
+    # FX trades 24/7, so a row might exist with only JPY=X data but no real US close.
+    # Drop those phantom rows so we never report partial data as today's close.
+    if "^GSPC" in df.columns:
+        df = df.dropna(subset=["^GSPC"])
+    else:
+        df = df.dropna(how="all")
 
     if len(df) < 2:
         raise RuntimeError("Not enough data")
