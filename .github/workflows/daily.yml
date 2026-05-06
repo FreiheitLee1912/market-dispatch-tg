@@ -2,10 +2,10 @@ name: Daily Market Dispatch
 
 on:
   schedule:
-    # 21:00 UTC, Mon-Fri = 06:00 JST next morning (Tue-Sat)
-    # ⚠ Summer (EDT, Mar-Nov): US close at 20:00 UTC → 1h buffer ✓
-    # ⚠ Winter (EST, Nov-Mar): US close at 21:00 UTC → consider '30 21 * * 1-5'
-    - cron: '0 21 * * 1-5'
+    # 22:00 UTC, Mon-Fri = 07:00 JST next morning (Tue-Sat)
+    # ⚠ Summer (EDT, Mar-Nov): US close at 20:00 UTC → 2h buffer for data sync ✓
+    # ⚠ Winter (EST, Nov-Mar): US close at 21:00 UTC → 1h buffer ✓
+    - cron: '0 22 * * 1-5'
   workflow_dispatch:        # manual trigger
 
 jobs:
