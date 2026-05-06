@@ -68,30 +68,26 @@ def fetch_market_data():
     return out, df.index[-1].date()
 
 
-def fetch_with_retry(max_retry=4, wait_sec=600):
-    """Retry until we get today's close (or give up after max_retry attempts)."""
-    today_et = datetime.now(ZoneInfo("America/New_York")).date()
-
+def fetch_with_retry(max_retry=2, wait_sec=60):
+    """Fetch market data, with quick retry only on errors (not on stale data).
+    Stale data handling is delegated to should_skip()."""
+    last_err = None
     for i in range(max_retry):
-        print(f"→ Fetch attempt {i+1}/{max_retry}")
-        data, latest = fetch_market_data()
-        delta = (today_et - latest).days
-
-        if delta == 0:
-            print(f"  ✓ Got today's close ({latest})")
+        try:
+            print(f"→ Fetch attempt {i+1}/{max_retry}")
+            data, latest = fetch_market_data()
+            today_et = datetime.now(ZoneInfo("America/New_York")).date()
+            delta = (today_et - latest).days
+            print(f"  ✓ Got close from {latest} (Δ {delta} days from today_ET)")
             return data, latest
+        except Exception as e:
+            last_err = e
+            print(f"  ✗ Fetch failed: {e}")
+            if i < max_retry - 1:
+                print(f"  ⏳ Retrying in {wait_sec}s...")
+                time.sleep(wait_sec)
 
-        if delta == 1:
-            print(f"  ⚠ Latest close is yesterday ({latest}) — data may be lagging")
-        else:
-            print(f"  ⚠ Latest close is {latest} (Δ {delta} days)")
-
-        if i < max_retry - 1:
-            print(f"  ⏳ Waiting {wait_sec//60} min before retry...")
-            time.sleep(wait_sec)
-
-    print("  ⚠ Using latest available data")
-    return data, latest
+    raise RuntimeError(f"All fetch attempts failed: {last_err}")
 
 
 def should_skip(latest_close_date):
